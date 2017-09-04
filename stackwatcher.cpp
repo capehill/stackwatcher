@@ -166,12 +166,12 @@ static void printStatistics(Context *ctx)
 
 static void iterateTaskList(Context *ctx, struct List *list)
 {
-	for (struct Node *exec_node = IExec->GetHead(list);
-		 exec_node;
-		 exec_node = IExec->GetSucc(exec_node)) {
+    for (struct Node *exec_node = IExec->GetHead(list);
+         exec_node;
+         exec_node = IExec->GetSucc(exec_node)) {
 
          sampleStackUsage(ctx, (struct Task *)exec_node);
-	}
+    }
 }
 
 static void resetTextBuffer(Context *ctx)
@@ -214,30 +214,30 @@ static void iterateTasks(Context *ctx)
 
 static void startTimer(Context *ctx)
 {
-	struct TimeVal dest, source;
+    struct TimeVal dest, source;
 
     const unsigned micros = 1000000 / samplesPerSecond;
 
-	ITimer->GetSysTime(&dest);
+    ITimer->GetSysTime(&dest);
 
-	source.Seconds = 0;
-	source.Microseconds = micros;
+    source.Seconds = 0;
+    source.Microseconds = micros;
 
-	ITimer->AddTime(&dest, &source);
+    ITimer->AddTime(&dest, &source);
 
-	ctx->timerReq->Request.io_Command = TR_ADDREQUEST;
-	ctx->timerReq->Time.Seconds = dest.Seconds;
+    ctx->timerReq->Request.io_Command = TR_ADDREQUEST;
+    ctx->timerReq->Time.Seconds = dest.Seconds;
     ctx->timerReq->Time.Microseconds = dest.Microseconds;
 
-	IExec->SendIO((struct IORequest *) ctx->timerReq);
+    IExec->SendIO((struct IORequest *) ctx->timerReq);
 }
 
 static void stopTimer(Context *ctx)
 {
-	if (!IExec->CheckIO((struct IORequest *) ctx->timerReq)) {
-		IExec->AbortIO((struct IORequest *) ctx->timerReq);
-		IExec->WaitIO((struct IORequest *) ctx->timerReq);
-	}
+    if (!IExec->CheckIO((struct IORequest *) ctx->timerReq)) {
+        IExec->AbortIO((struct IORequest *) ctx->timerReq);
+        IExec->WaitIO((struct IORequest *) ctx->timerReq);
+    }
 }
 
 static bool setup(Context *ctx)
@@ -250,40 +250,40 @@ static bool setup(Context *ctx)
     ((struct Node *)ctx->ownTask)->ln_Name = (STRPTR)"Stackwatcher";
 
 
-	ctx->timerPort = (struct MsgPort *)IExec->AllocSysObjectTags(ASOT_PORT,
-		ASOPORT_Name, "timer_port",
-		TAG_DONE);
+    ctx->timerPort = (struct MsgPort *)IExec->AllocSysObjectTags(ASOT_PORT,
+        ASOPORT_Name, "timer_port",
+        TAG_DONE);
 
-	if (!ctx->timerPort) {
-		puts("Couldn't create timer port");
-		goto out;
-	}
+    if (!ctx->timerPort) {
+        puts("Couldn't create timer port");
+        goto out;
+    }
 
-	ctx->timerReq = (struct TimeRequest *)IExec->AllocSysObjectTags(ASOT_IOREQUEST,
-		ASOIOR_Size, sizeof(struct TimeRequest),
-		ASOIOR_ReplyPort, ctx->timerPort,
-		TAG_DONE);
+    ctx->timerReq = (struct TimeRequest *)IExec->AllocSysObjectTags(ASOT_IOREQUEST,
+        ASOIOR_Size, sizeof(struct TimeRequest),
+        ASOIOR_ReplyPort, ctx->timerPort,
+        TAG_DONE);
 
-	if (!ctx->timerReq) {
-		puts("Couldn't create IO request");
-		goto out;
-	}
+    if (!ctx->timerReq) {
+        puts("Couldn't create IO request");
+        goto out;
+    }
 
-	ctx->timerDevice = IExec->OpenDevice(TIMERNAME, UNIT_WAITUNTIL,
-		(struct IORequest *)ctx->timerReq, 0);
+    ctx->timerDevice = IExec->OpenDevice(TIMERNAME, UNIT_WAITUNTIL,
+        (struct IORequest *)ctx->timerReq, 0);
 
-	if (ctx->timerDevice) {
-		printf("Couldn't open %s\n", TIMERNAME);
-		goto out;
-	}
+    if (ctx->timerDevice) {
+        printf("Couldn't open %s\n", TIMERNAME);
+        goto out;
+    }
 
-	ITimer = (struct TimerIFace *) IExec->GetInterface(
-		(struct Library *) ctx->timerReq->Request.io_Device, "main", 1, NULL);
+    ITimer = (struct TimerIFace *) IExec->GetInterface(
+        (struct Library *) ctx->timerReq->Request.io_Device, "main", 1, NULL);
 
-	if (!ITimer) {
-		puts("Failed to get ITimer interface");
-		goto out;
-	}
+    if (!ITimer) {
+        puts("Failed to get ITimer interface");
+        goto out;
+    }
 
     result = true;
 out:
@@ -293,21 +293,21 @@ out:
 
 static void cleanup(Context *ctx)
 {
-	if (ITimer) {
-		IExec->DropInterface((struct Interface *)ITimer);
-	}
+    if (ITimer) {
+        IExec->DropInterface((struct Interface *)ITimer);
+    }
 
-	if (ctx->timerReq) {
-		if (ctx->timerDevice == 0) {
-			IExec->CloseDevice((struct IORequest *) ctx->timerReq);
-		}
+    if (ctx->timerReq) {
+        if (ctx->timerDevice == 0) {
+            IExec->CloseDevice((struct IORequest *) ctx->timerReq);
+        }
 
-		IExec->FreeSysObject(ASOT_IOREQUEST, ctx->timerReq);
-	}
+        IExec->FreeSysObject(ASOT_IOREQUEST, ctx->timerReq);
+    }
 
-	if (ctx->timerPort) {
-		IExec->FreeSysObject(ASOT_PORT, ctx->timerPort);
-	}
+    if (ctx->timerPort) {
+        IExec->FreeSysObject(ASOT_PORT, ctx->timerPort);
+    }
 
     if (ctx->oldName) {
         ((struct Node *)ctx->ownTask)->ln_Name = ctx->oldName;
@@ -318,7 +318,7 @@ static void printHelp(Context *ctx)
 {
     puts("Stackwatcher started...");
 
-    printf("\tSamples per second: %u\n", samplesPerSecond);
+    printf("\tSamples per second: %d\n", samplesPerSecond);
     printf("\tWarning threshold: %3.2f%%\n", warningThreshold);
     printf("\tDanger threshold: %3.2f%%\n", dangerThreshold);
     printf("\tQuiet mode: %s\n", ctx->verbose ? "off" : "on");
@@ -378,6 +378,6 @@ int main(int argc, char** argv)
 
     cleanup(&ctx);
 
-	return 0;
+    return 0;
 }
 
