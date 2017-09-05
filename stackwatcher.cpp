@@ -96,14 +96,29 @@ static float percentage(unsigned used, unsigned total)
     return 100.0f * used / total;
 }
 
+static bool taskPtrFound(Context *ctx, struct Task *t)
+{
+    return ctx->tasks.find(t) != ctx->tasks.end();
+}
+
+static bool sameName(Context *ctx, struct Task *t, const STRPTR name)
+{
+    return !strcmp(name, ctx->tasks[t].name.c_str());
+}
+
 static void addTask(Context *ctx, struct Task *t, const STRPTR name, const StackInfo *si)
 {
-    if (ctx->tasks.find(t) == ctx->tasks.end()) {
-        ctx->tasks[t] = TaskData(name, si->used, si->total);
+    // It's possible that task y replaces task x in memory. Should we keep book on all tasks
+    // somehow, alive or dead?
+    if (taskPtrFound(ctx, t) && sameName(ctx, t, name)) {
+        return;
+    }
 
-        if (ctx->verbose) {
-            ctx->stream << "Added task '" << name << "' (" << t << ")" << std::endl;
-        }
+    ctx->tasks[t] = TaskData(name, si->used, si->total);
+
+    if (ctx->verbose) {
+        ctx->stream << "Added task '" << name << "' (@" << t <<
+                       ") stack: " << si->used << "/" << si->total << std::endl;
     }
 }
 
@@ -137,6 +152,15 @@ static void updateUsage(Context *ctx, struct Task *t, const STRPTR name, const S
         if (ctx->verbose) {
             ctx->stream << "'" << name << "' uses now " << si->used << " bytes of stack" << std::endl;
         }
+    }
+
+    if (si->total != ctx->tasks[t].total) {
+        if (ctx->verbose) {
+            ctx->stream << "'" << name << "': stack size changed from " << ctx->tasks[t].total <<
+                           " to " << si->total << std::endl;
+        }
+
+        ctx->tasks[t].total = si->total;
     }
 }
 
