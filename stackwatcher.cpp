@@ -74,6 +74,30 @@ struct Context {
     {
     }
 
+    ~Context()
+    {
+        cleanup();
+    }
+
+    bool taskPtrFound(struct Task *t);
+    bool sameName(struct Task *t, const STRPTR name);
+    void addTask(struct Task *t, const STRPTR name, const StackInfo *si);
+    void checkLimits(struct Task *t, const STRPTR name, const StackInfo *si);
+    void updateUsage(struct Task *t, const STRPTR name, const StackInfo *si);
+    void sampleStackUsage(struct Task *t);
+    void printStatistics();
+    void iterateTaskList(struct List *list);
+    void resetTextBuffer();
+    void printTextBuffer();
+    void iterateTasks();
+    void startTimer();
+    void stopTimer();
+    bool setup();
+    void printHelp() const;
+    void cleanup();
+    void run();
+    void checkArgs(int argc, char** argv);
+
     BYTE timerDevice;
     struct MsgPort *timerPort;
     struct TimeRequest *timerReq;
@@ -96,90 +120,90 @@ static float percentage(unsigned used, unsigned total)
     return 100.0f * used / total;
 }
 
-static bool taskPtrFound(Context *ctx, struct Task *t)
+bool Context::taskPtrFound(struct Task *t)
 {
-    return ctx->tasks.find(t) != ctx->tasks.end();
+    return tasks.find(t) != tasks.end();
 }
 
-static bool sameName(Context *ctx, struct Task *t, const STRPTR name)
+bool Context::sameName(struct Task *t, const STRPTR name)
 {
-    return !strcmp(name, ctx->tasks[t].name.c_str());
+    return !strcmp(name, tasks[t].name.c_str());
 }
 
-static void addTask(Context *ctx, struct Task *t, const STRPTR name, const StackInfo *si)
+void Context::addTask(struct Task *t, const STRPTR name, const StackInfo *si)
 {
     // It's possible that task y replaces task x in memory. Should we keep book on all tasks
     // somehow, alive or dead?
-    if (taskPtrFound(ctx, t) && sameName(ctx, t, name)) {
+    if (taskPtrFound(t) && sameName(t, name)) {
         return;
     }
 
-    ctx->tasks[t] = TaskData(name, si->used, si->total);
+    tasks[t] = TaskData(name, si->used, si->total);
 
-    if (ctx->verbose) {
-        ctx->stream << "Added task '" << name << "' (@" << t <<
-                       ") stack: " << si->used << "/" << si->total << std::endl;
+    if (verbose) {
+        stream << "Added task '" << name << "' (@" << t <<
+                  ") stack: " << si->used << "/" << si->total << std::endl;
     }
 }
 
-static void checkLimits(Context *ctx, struct Task *t, const STRPTR name, const StackInfo *si)
+void Context::checkLimits(struct Task *t, const STRPTR name, const StackInfo *si)
 {
     const float p = percentage(si->used, si->total);
 
     if (p >= dangerThreshold) {
-        if (p > ctx->tasks[t].dangerAt) {
-            ctx->stream << "DANGER: '" << name << "' uses " << p << "% of its stack space" << std::endl;
-            ctx->tasks[t].dangerAt = p;
+        if (p > tasks[t].dangerAt) {
+            stream << "DANGER: '" << name << "' uses " << p << "% of its stack space" << std::endl;
+            tasks[t].dangerAt = p;
         }
     } else if (p >= warningThreshold) {
-        if (p > ctx->tasks[t].warningAt) {
-            ctx->stream << "Warning: '" << name << "' uses " << p << "% of its stack space" << std::endl;
-            ctx->tasks[t].warningAt = p;
+        if (p > tasks[t].warningAt) {
+            stream << "Warning: '" << name << "' uses " << p << "% of its stack space" << std::endl;
+            tasks[t].warningAt = p;
         }
     }
 
     if (si->current < si->lower || si->current > si->upper) {
-        ctx->stream << "ERROR: '" << name << "' stack pointer " << si->current
-                    << " is outside bounds [" << si->lower << ", " << si->upper << "]" << std::endl;
+        stream << "ERROR: '" << name << "' stack pointer " << si->current <<
+                  " is outside bounds [" << si->lower << ", " << si->upper << "]" << std::endl;
     }
 }
 
-static void updateUsage(Context *ctx, struct Task *t, const STRPTR name, const StackInfo *si)
+void Context::updateUsage(struct Task *t, const STRPTR name, const StackInfo *si)
 {
-    if (si->used > ctx->tasks[t].maxUsage) {
-        ctx->tasks[t].maxUsage = si->used;
+    if (si->used > tasks[t].maxUsage) {
+        tasks[t].maxUsage = si->used;
 
-        if (ctx->verbose) {
-            ctx->stream << "'" << name << "' uses now " << si->used << " bytes of stack" << std::endl;
+        if (verbose) {
+            stream << "'" << name << "' uses now " << si->used << " bytes of stack" << std::endl;
         }
     }
 
-    if (si->total != ctx->tasks[t].total) {
-        if (ctx->verbose) {
-            ctx->stream << "'" << name << "': stack size changed from " << ctx->tasks[t].total <<
-                           " to " << si->total << std::endl;
+    if (si->total != tasks[t].total) {
+        if (verbose) {
+            stream << "'" << name << "': stack size changed from " << tasks[t].total <<
+                      " to " << si->total << std::endl;
         }
 
-        ctx->tasks[t].total = si->total;
+        tasks[t].total = si->total;
     }
 }
 
-static void sampleStackUsage(Context *ctx, struct Task *t)
+void Context::sampleStackUsage(struct Task *t)
 {
     const STRPTR name = ((struct Node *)t)->ln_Name;
 
     StackInfo si((unsigned)t->tc_SPUpper, (unsigned)t->tc_SPLower, (unsigned)t->tc_SPReg);
 
-    addTask(ctx, t, name, &si);
-    checkLimits(ctx, t, name, &si);
-    updateUsage(ctx, t, name, &si);
+    addTask(t, name, &si);
+    checkLimits(t, name, &si);
+    updateUsage(t, name, &si);
 }
 
-static void printStatistics(Context *ctx)
+void Context::printStatistics()
 {
     std::map<struct Task *, TaskData>::iterator i;
 
-    for (i = ctx->tasks.begin(); i != ctx->tasks.end(); ++i) {
+    for (i = tasks.begin(); i != tasks.end(); ++i) {
         TaskData& t = i->second;
 
         const float p = percentage(t.maxUsage, t.total);
@@ -188,28 +212,28 @@ static void printStatistics(Context *ctx)
     }
 }
 
-static void iterateTaskList(Context *ctx, struct List *list)
+void Context::iterateTaskList(struct List *list)
 {
     for (struct Node *exec_node = IExec->GetHead(list);
          exec_node;
          exec_node = IExec->GetSucc(exec_node)) {
 
-         sampleStackUsage(ctx, (struct Task *)exec_node);
+         sampleStackUsage((struct Task *)exec_node);
     }
 }
 
-static void resetTextBuffer(Context *ctx)
+void Context::resetTextBuffer()
 {
-    ctx->stream.str(std::string());
-    ctx->stream.clear();
+    stream.str(std::string());
+    stream.clear();
 }
 
-static void printTextBuffer(Context *ctx)
+void Context::printTextBuffer()
 {
-    const std::string& s = ctx->stream.str();
+    const std::string& s = stream.str();
 
     if (!s.empty()) {
-        if (ctx->serial) {
+        if (serial) {
             IExec->DebugPrintF("%s", s.c_str());
         }
 
@@ -218,25 +242,25 @@ static void printTextBuffer(Context *ctx)
     }
 }
 
-static void iterateTasks(Context *ctx)
+void Context::iterateTasks()
 {
     struct ExecBase *eb = (struct ExecBase *)SysBase;
 
-    resetTextBuffer(ctx);
+    resetTextBuffer();
 
     IExec->Disable();
 
-    iterateTaskList(ctx, &eb->TaskWait);
-    iterateTaskList(ctx, &eb->TaskReady);
+    iterateTaskList(&eb->TaskWait);
+    iterateTaskList(&eb->TaskReady);
 
     IExec->Enable();
 
-    sampleStackUsage(ctx, ctx->ownTask);
+    sampleStackUsage(ownTask);
 
-    printTextBuffer(ctx);
+    printTextBuffer();
 }
 
-static void startTimer(Context *ctx)
+void Context::startTimer()
 {
     struct TimeVal dest, source;
 
@@ -249,60 +273,62 @@ static void startTimer(Context *ctx)
 
     ITimer->AddTime(&dest, &source);
 
-    ctx->timerReq->Request.io_Command = TR_ADDREQUEST;
-    ctx->timerReq->Time.Seconds = dest.Seconds;
-    ctx->timerReq->Time.Microseconds = dest.Microseconds;
+    timerReq->Request.io_Command = TR_ADDREQUEST;
+    timerReq->Time.Seconds = dest.Seconds;
+    timerReq->Time.Microseconds = dest.Microseconds;
 
-    IExec->SendIO((struct IORequest *) ctx->timerReq);
+    IExec->SendIO((struct IORequest *) timerReq);
 }
 
-static void stopTimer(Context *ctx)
+void Context::stopTimer()
 {
-    if (!IExec->CheckIO((struct IORequest *) ctx->timerReq)) {
-        IExec->AbortIO((struct IORequest *) ctx->timerReq);
-        IExec->WaitIO((struct IORequest *) ctx->timerReq);
+    struct IORequest *req = (struct IORequest *)timerReq;
+
+    if (!IExec->CheckIO(req)) {
+        IExec->AbortIO(req);
+        IExec->WaitIO(req);
     }
 }
 
-static bool setup(Context *ctx)
+bool Context::setup()
 {
     bool result = false;
 
-    ctx->ownTask = IExec->FindTask(NULL);
+    ownTask = IExec->FindTask(NULL);
 
-    ctx->oldName = ((struct Node *)ctx->ownTask)->ln_Name;
-    ((struct Node *)ctx->ownTask)->ln_Name = (STRPTR)"Stackwatcher";
+    oldName = ((struct Node *)ownTask)->ln_Name;
+    ((struct Node *)ownTask)->ln_Name = (STRPTR)"Stackwatcher";
 
 
-    ctx->timerPort = (struct MsgPort *)IExec->AllocSysObjectTags(ASOT_PORT,
+    timerPort = (struct MsgPort *)IExec->AllocSysObjectTags(ASOT_PORT,
         ASOPORT_Name, "timer_port",
         TAG_DONE);
 
-    if (!ctx->timerPort) {
+    if (!timerPort) {
         puts("Couldn't create timer port");
         goto out;
     }
 
-    ctx->timerReq = (struct TimeRequest *)IExec->AllocSysObjectTags(ASOT_IOREQUEST,
+    timerReq = (struct TimeRequest *)IExec->AllocSysObjectTags(ASOT_IOREQUEST,
         ASOIOR_Size, sizeof(struct TimeRequest),
-        ASOIOR_ReplyPort, ctx->timerPort,
+        ASOIOR_ReplyPort, timerPort,
         TAG_DONE);
 
-    if (!ctx->timerReq) {
+    if (!timerReq) {
         puts("Couldn't create IO request");
         goto out;
     }
 
-    ctx->timerDevice = IExec->OpenDevice(TIMERNAME, UNIT_WAITUNTIL,
-        (struct IORequest *)ctx->timerReq, 0);
+    timerDevice = IExec->OpenDevice(TIMERNAME, UNIT_WAITUNTIL,
+        (struct IORequest *)timerReq, 0);
 
-    if (ctx->timerDevice) {
+    if (timerDevice) {
         printf("Couldn't open %s\n", TIMERNAME);
         goto out;
     }
 
     ITimer = (struct TimerIFace *) IExec->GetInterface(
-        (struct Library *) ctx->timerReq->Request.io_Device, "main", 1, NULL);
+        (struct Library *) timerReq->Request.io_Device, "main", 1, NULL);
 
     if (!ITimer) {
         puts("Failed to get ITimer interface");
@@ -315,73 +341,73 @@ out:
     return result;
 }
 
-static void cleanup(Context *ctx)
+void Context::cleanup()
 {
     if (ITimer) {
         IExec->DropInterface((struct Interface *)ITimer);
     }
 
-    if (ctx->timerReq) {
-        if (ctx->timerDevice == 0) {
-            IExec->CloseDevice((struct IORequest *) ctx->timerReq);
+    if (timerReq) {
+        if (timerDevice == 0) {
+            IExec->CloseDevice((struct IORequest *) timerReq);
         }
 
-        IExec->FreeSysObject(ASOT_IOREQUEST, ctx->timerReq);
+        IExec->FreeSysObject(ASOT_IOREQUEST, timerReq);
     }
 
-    if (ctx->timerPort) {
-        IExec->FreeSysObject(ASOT_PORT, ctx->timerPort);
+    if (timerPort) {
+        IExec->FreeSysObject(ASOT_PORT, timerPort);
     }
 
-    if (ctx->oldName) {
-        ((struct Node *)ctx->ownTask)->ln_Name = ctx->oldName;
+    if (oldName) {
+        ((struct Node *)ownTask)->ln_Name = oldName;
     }
 }
 
-static void printHelp(Context *ctx)
+void Context::printHelp() const
 {
     puts("Stackwatcher started...");
 
     printf("\tSamples per second: %d\n", samplesPerSecond);
     printf("\tWarning threshold: %3.2f%%\n", warningThreshold);
     printf("\tDanger threshold: %3.2f%%\n", dangerThreshold);
-    printf("\tQuiet mode: %s\n", ctx->verbose ? "off" : "on");
-    printf("\tSerial output: %s\n", ctx->serial ? "on" : "off");
+    printf("\tQuiet mode: %s\n", verbose ? "off" : "on");
+    printf("\tSerial output: %s\n", serial ? "on" : "off");
 
     puts("\t...press Control-C to quit");
 }
 
-static void run(Context *ctx)
+void Context::run()
 {
     do {
-        startTimer(ctx);
+        startTimer();
 
-        const ULONG timerSig = 1L << ctx->timerPort->mp_SigBit;
+        const ULONG timerSig = 1L << timerPort->mp_SigBit;
         const ULONG sigs = IExec->Wait(SIGBREAKF_CTRL_C | timerSig);
 
         if (sigs & timerSig) {
-            iterateTasks(ctx);
+            iterateTasks();
         }
 
         if (sigs & SIGBREAKF_CTRL_C) {
             puts("Control-C pressed - printing all statistics:\n"
                  "============================================");
 
-            printStatistics(ctx);
+            printStatistics();
             break;
         }
     } while (true);
 
-    stopTimer(ctx);
+    stopTimer();
 }
 
-static void checkArgs(Context *ctx, int argc, char** argv)
+void Context::checkArgs(int argc, char** argv)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "quiet") == 0) {
-            ctx->verbose = false;
+            verbose = false;
         } else  if (strcmp(argv[i], "serial") == 0) {
-            ctx->serial = true;
+            serial = true;
         } else {
             printf("\tUnknown parameter '%s'\n", argv[i]);
         }
@@ -390,17 +416,15 @@ static void checkArgs(Context *ctx, int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-    Context ctx;
+    Context c;
 
-    checkArgs(&ctx, argc, argv);
+    c.checkArgs(argc, argv);
 
-    printHelp(&ctx);
+    c.printHelp();
 
-    if (setup(&ctx)) {
-        run(&ctx);
+    if (c.setup()) {
+        c.run();
     }
-
-    cleanup(&ctx);
 
     return 0;
 }
