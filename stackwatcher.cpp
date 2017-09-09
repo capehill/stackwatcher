@@ -1,5 +1,9 @@
 /*
-    g++ stackwatcher.cpp -O2 -Wall -use-dynld
+    Stackwatcher - a shell tool to watch stack usage on AmigaOS 4.
+
+    Written by Juha Niemimaki.
+
+    PUBLIC DOMAIN.
 */
 
 #include <proto/exec.h>
@@ -12,6 +16,8 @@
 #include <map>
 #include <string>
 #include <sstream>
+
+static __attribute__((used)) const char *versionString = "$VER: Stackwatcher 0.1 (9.9.2017)";
 
 static const int samplesPerSecond = 50;
 
