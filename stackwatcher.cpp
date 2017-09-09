@@ -62,8 +62,8 @@ struct TaskData {
     float dangerAt;
 };
 
-struct Context {
-    Context() :
+struct StackWatcher {
+    StackWatcher(int argc, char **argv) :
         timerDevice(-1),
         timerPort(NULL),
         timerReq(NULL),
@@ -72,9 +72,11 @@ struct Context {
         verbose(true),
         serial(false)
     {
+        checkArgs(argc, argv);
+        printHelp();
     }
 
-    ~Context()
+    ~StackWatcher()
     {
         cleanup();
     }
@@ -120,17 +122,17 @@ static float percentage(unsigned used, unsigned total)
     return 100.0f * used / total;
 }
 
-bool Context::taskPtrFound(struct Task *t)
+bool StackWatcher::taskPtrFound(struct Task *t)
 {
     return tasks.find(t) != tasks.end();
 }
 
-bool Context::sameName(struct Task *t, const STRPTR name)
+bool StackWatcher::sameName(struct Task *t, const STRPTR name)
 {
     return !strcmp(name, tasks[t].name.c_str());
 }
 
-void Context::addTask(struct Task *t, const STRPTR name, const StackInfo *si)
+void StackWatcher::addTask(struct Task *t, const STRPTR name, const StackInfo *si)
 {
     // It's possible that task y replaces task x in memory. Should we keep book on all tasks
     // somehow, alive or dead?
@@ -146,7 +148,7 @@ void Context::addTask(struct Task *t, const STRPTR name, const StackInfo *si)
     }
 }
 
-void Context::checkLimits(struct Task *t, const STRPTR name, const StackInfo *si)
+void StackWatcher::checkLimits(struct Task *t, const STRPTR name, const StackInfo *si)
 {
     const float p = percentage(si->used, si->total);
 
@@ -168,7 +170,7 @@ void Context::checkLimits(struct Task *t, const STRPTR name, const StackInfo *si
     }
 }
 
-void Context::updateUsage(struct Task *t, const STRPTR name, const StackInfo *si)
+void StackWatcher::updateUsage(struct Task *t, const STRPTR name, const StackInfo *si)
 {
     if (si->used > tasks[t].maxUsage) {
         tasks[t].maxUsage = si->used;
@@ -188,7 +190,7 @@ void Context::updateUsage(struct Task *t, const STRPTR name, const StackInfo *si
     }
 }
 
-void Context::sampleStackUsage(struct Task *t)
+void StackWatcher::sampleStackUsage(struct Task *t)
 {
     const STRPTR name = ((struct Node *)t)->ln_Name;
 
@@ -199,7 +201,7 @@ void Context::sampleStackUsage(struct Task *t)
     updateUsage(t, name, &si);
 }
 
-void Context::printStatistics()
+void StackWatcher::printStatistics()
 {
     std::map<struct Task *, TaskData>::iterator i;
 
@@ -208,11 +210,28 @@ void Context::printStatistics()
 
         const float p = percentage(t.maxUsage, t.total);
 
-        printf("%32s: %3.2f%% (%u/%u)\n", t.name.c_str(), p, t.maxUsage, t.total);
+        std::streamsize oldWidth = stream.width();
+
+        stream.width(40);
+
+        stream << t.name;
+
+        stream.width(oldWidth);
+
+        stream << ": " << p << "% " << "(" << t.maxUsage << "/" << t.total << ")" << std::endl;
     }
+
+    const std::string& s = stream.str();
+    if (serial) {
+        IExec->DebugPrintF("%s", s.c_str());
+    }
+
+    printf("%s", s.c_str());
+
+    resetTextBuffer();
 }
 
-void Context::iterateTaskList(struct List *list)
+void StackWatcher::iterateTaskList(struct List *list)
 {
     for (struct Node *exec_node = IExec->GetHead(list);
          exec_node;
@@ -222,13 +241,13 @@ void Context::iterateTaskList(struct List *list)
     }
 }
 
-void Context::resetTextBuffer()
+void StackWatcher::resetTextBuffer()
 {
     stream.str(std::string());
     stream.clear();
 }
 
-void Context::printTextBuffer()
+void StackWatcher::printTextBuffer()
 {
     const std::string& s = stream.str();
 
@@ -240,13 +259,13 @@ void Context::printTextBuffer()
         printf("%s", s.c_str());
         fflush(stdout);
     }
-}
-
-void Context::iterateTasks()
-{
-    struct ExecBase *eb = (struct ExecBase *)SysBase;
 
     resetTextBuffer();
+}
+
+void StackWatcher::iterateTasks()
+{
+    struct ExecBase *eb = (struct ExecBase *)SysBase;
 
     IExec->Disable();
 
@@ -260,7 +279,7 @@ void Context::iterateTasks()
     printTextBuffer();
 }
 
-void Context::startTimer()
+void StackWatcher::startTimer()
 {
     struct TimeVal dest, source;
 
@@ -280,7 +299,7 @@ void Context::startTimer()
     IExec->SendIO((struct IORequest *) timerReq);
 }
 
-void Context::stopTimer()
+void StackWatcher::stopTimer()
 {
     struct IORequest *req = (struct IORequest *)timerReq;
 
@@ -290,7 +309,7 @@ void Context::stopTimer()
     }
 }
 
-bool Context::setup()
+bool StackWatcher::setup()
 {
     bool result = false;
 
@@ -341,7 +360,7 @@ out:
     return result;
 }
 
-void Context::cleanup()
+void StackWatcher::cleanup()
 {
     if (ITimer) {
         IExec->DropInterface((struct Interface *)ITimer);
@@ -364,7 +383,7 @@ void Context::cleanup()
     }
 }
 
-void Context::printHelp() const
+void StackWatcher::printHelp() const
 {
     puts("Stackwatcher started...");
 
@@ -377,7 +396,7 @@ void Context::printHelp() const
     puts("\t...press Control-C to quit");
 }
 
-void Context::run()
+void StackWatcher::run()
 {
     do {
         startTimer();
@@ -401,7 +420,7 @@ void Context::run()
     stopTimer();
 }
 
-void Context::checkArgs(int argc, char** argv)
+void StackWatcher::checkArgs(int argc, char** argv)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "quiet") == 0) {
@@ -416,14 +435,10 @@ void Context::checkArgs(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-    Context c;
+    StackWatcher sw(argc, argv);
 
-    c.checkArgs(argc, argv);
-
-    c.printHelp();
-
-    if (c.setup()) {
-        c.run();
+    if (sw.setup()) {
+        sw.run();
     }
 
     return 0;
